@@ -460,7 +460,17 @@ class TLSLayer(tunnel.TunnelLayer):
     def send_close(
         self, command: commands.CloseConnection
     ) -> layer.CommandGenerator[None]:
-        # We should probably shutdown the TLS connection properly here.
+        if (
+            self.tls is not None
+            and self.tunnel_state is tunnel.TunnelState.OPEN
+            and not self.tls.get_shutdown() & SSL.SENT_SHUTDOWN
+        ):
+            try:
+                self.tls.shutdown()
+            except SSL.Error as e:
+                # A fatal TLS error may leave the tunnel open but prevent shutdown.
+                yield commands.Log(f"{self.proto_name} shutdown failed: {e}", WARNING)
+            yield from self.tls_interact()
         yield from super().send_close(command)
 
 
