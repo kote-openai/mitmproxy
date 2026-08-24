@@ -674,6 +674,7 @@ class TestClientTLS:
             ],
         )
         assert sent[-1] is close
+        assert close.half_close == half_close
         assert list(client_layer.send_close(close)) == [close]
 
         if half_close:
