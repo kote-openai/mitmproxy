@@ -585,7 +585,7 @@ class TestClientTLS:
         "tls_version", [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3]
     )
     @pytest.mark.parametrize(
-        "close_mode", ["full", "half", "bad_record", "shutdown_error"]
+        "close_mode", ["full", "half", "nested", "bad_record", "shutdown_error"]
     )
     def test_client_only(self, tctx: context.Context, tls_version, close_mode):
         """Test TLS with client only"""
@@ -659,6 +659,11 @@ class TestClientTLS:
                     [commands.Log("TLS shutdown failed: test error", WARNING), close],
                 )
             return
+
+        if close_mode == "nested":
+            # An inner TLS layer resets metadata shared with the outer layer.
+            client_layer.child_layer = tls.ClientTLSLayer(client_layer.context)
+            assert not tctx.client.tls_established
 
         half_close = close_mode == "half"
         data = Placeholder(bytes)
