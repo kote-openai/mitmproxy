@@ -620,8 +620,12 @@ class TestClientTLS:
                 >> events.DataReceived(tctx.client, bytes(ciphertext))
                 << commands.Log(StrMatching("TLS Error: .*bad record mac"), WARNING)
                 << commands.SendData(tctx.client, Placeholder(bytes))
+            )
+            # A nested TLS layer may still send its shutdown alert through us.
+            assert list(client_layer.send_data(b"nested close_notify")) == []
+            assert (
+                playbook
                 >> events.ConnectionClosed(tctx.client)
-                << commands.Log(StrMatching("TLS shutdown failed:"), WARNING)
                 << commands.CloseConnection(tctx.client)
             )
             return

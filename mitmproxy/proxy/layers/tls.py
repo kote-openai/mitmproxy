@@ -242,6 +242,7 @@ class TlsFailedServerHook(StartHook):
 class TLSLayer(tunnel.TunnelLayer):
     tls: SSL.Connection = None  # type: ignore
     """The OpenSSL connection object"""
+    _tls_failed: bool = False
 
     def __init__(self, context: context.Context, conn: connection.Connection):
         super().__init__(
@@ -425,6 +426,7 @@ class TLSLayer(tunnel.TunnelLayer):
                 # which upon mistrusting a certificate still completes the handshake
                 # and then sends an alert in the next packet. At this point we have unfortunately
                 # already fired out `tls_established_client` hook.
+                self._tls_failed = True
                 yield commands.Log(f"TLS Error: {e}", WARNING)
                 break
 
@@ -450,6 +452,8 @@ class TLSLayer(tunnel.TunnelLayer):
             yield from super().receive_close()
 
     def send_data(self, data: bytes) -> layer.CommandGenerator[None]:
+        if self._tls_failed:
+            return
         try:
             self.tls.sendall(data)
         except (SSL.ZeroReturnError, SSL.SysCallError):
@@ -462,6 +466,7 @@ class TLSLayer(tunnel.TunnelLayer):
     ) -> layer.CommandGenerator[None]:
         if (
             self.tls is not None
+            and not self._tls_failed
             and self.tunnel_state is tunnel.TunnelState.OPEN
             and not self.tls.get_shutdown() & SSL.SENT_SHUTDOWN
         ):
