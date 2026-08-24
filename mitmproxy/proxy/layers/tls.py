@@ -242,6 +242,8 @@ class TlsFailedServerHook(StartHook):
 class TLSLayer(tunnel.TunnelLayer):
     tls: SSL.Connection = None  # type: ignore
     """The OpenSSL connection object"""
+    # Nested TLS layers share Connection metadata, but not handshake state.
+    _handshake_complete: bool = False
     _tls_failed: bool = False
 
     def __init__(self, context: context.Context, conn: connection.Connection):
@@ -354,6 +356,7 @@ class TLSLayer(tunnel.TunnelLayer):
                 err = f"OpenSSL {e!r}"
             return False, err
         else:
+            self._handshake_complete = True
             # Here we set all attributes that are only known *after* the handshake.
 
             # Get all peer certificates.
@@ -465,9 +468,8 @@ class TLSLayer(tunnel.TunnelLayer):
         self, command: commands.CloseConnection
     ) -> layer.CommandGenerator[None]:
         if (
-            self.tls is not None
+            self._handshake_complete
             and not self._tls_failed
-            and self.tunnel_state is tunnel.TunnelState.OPEN
             and not self.tls.get_shutdown() & SSL.SENT_SHUTDOWN
         ):
             try:

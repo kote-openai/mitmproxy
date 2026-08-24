@@ -296,8 +296,10 @@ class TestServerTLS:
     @pytest.mark.parametrize(
         "tls_version", [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3]
     )
-    def test_simple(self, tctx, tls_version):
-        playbook = tutils.Playbook(tls.ServerTLSLayer(tctx))
+    @pytest.mark.parametrize("close_after_eof", [False, True])
+    def test_simple(self, tctx, tls_version, close_after_eof):
+        server_layer = tls.ServerTLSLayer(tctx)
+        playbook = tutils.Playbook(server_layer)
         tctx.server.address = ("example.mitmproxy.org", 443)
         tctx.server.state = ConnectionState.OPEN
         tctx.server.sni = "example.mitmproxy.org"
@@ -356,14 +358,28 @@ class TestServerTLS:
         with pytest.raises(ssl.SSLWantReadError):
             tssl.obj.unwrap()
         close_notify = tutils.Placeholder(bytes)
-        assert (
-            playbook
-            >> events.DataReceived(tctx.server, tssl.bio_read())
-            << commands.SendData(tctx.server, close_notify)
-            << commands.CloseConnection(tctx.server)
-            >> events.ConnectionClosed(tctx.server)
-            << None
-        )
+        if close_after_eof:
+            server_layer.child_layer = tutils.RecordLayer(tctx)
+            assert (
+                playbook
+                >> events.DataReceived(tctx.server, tssl.bio_read())
+                >> events.ConnectionClosed(tctx.server)
+            )
+            assert tctx.server.state is ConnectionState.CAN_WRITE
+            close = commands.CloseConnection(tctx.server)
+            assert tutils.eq(
+                list(server_layer.send_close(close)),
+                [commands.SendData(tctx.server, close_notify), close],
+            )
+        else:
+            assert (
+                playbook
+                >> events.DataReceived(tctx.server, tssl.bio_read())
+                << commands.SendData(tctx.server, close_notify)
+                << commands.CloseConnection(tctx.server)
+                >> events.ConnectionClosed(tctx.server)
+                << None
+            )
         tssl.bio_write(close_notify())
         tssl.obj.unwrap()
 
