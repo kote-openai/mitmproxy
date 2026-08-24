@@ -3,6 +3,7 @@ import sys
 import time
 from logging import DEBUG
 from logging import WARNING
+from unittest.mock import patch
 
 import pytest
 from OpenSSL import SSL
@@ -583,7 +584,9 @@ class TestClientTLS:
     @pytest.mark.parametrize(
         "tls_version", [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3]
     )
-    @pytest.mark.parametrize("close_mode", ["full", "half", "bad_record"])
+    @pytest.mark.parametrize(
+        "close_mode", ["full", "half", "bad_record", "shutdown_error"]
+    )
     def test_client_only(self, tctx: context.Context, tls_version, close_mode):
         """Test TLS with client only"""
         playbook, client_layer, tssl_client = make_client_tls_layer(
@@ -644,6 +647,17 @@ class TestClientTLS:
                 >> events.ConnectionClosed(tctx.client)
                 << commands.CloseConnection(tctx.client)
             )
+            return
+
+        if close_mode == "shutdown_error":
+            close = commands.CloseConnection(tctx.client)
+            with patch.object(
+                client_layer.tls, "shutdown", side_effect=SSL.Error("test error")
+            ):
+                assert tutils.eq(
+                    list(client_layer.send_close(close)),
+                    [commands.Log("TLS shutdown failed: test error", WARNING), close],
+                )
             return
 
         half_close = close_mode == "half"
